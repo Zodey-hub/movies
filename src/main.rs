@@ -1,64 +1,58 @@
+mod constants;
+
 use std::error::Error;
 
 use tabled::{Table, Tabled};
 
+use crate::constants::{
+    errors::{ERROR_LANGUAGE, ERROR_LANGUAGE_END, ERROR_QUALITY_END, ERROR_TITLE},
+    LANGUAGE, LANGUAGE_END, NETMOZI_URL, QUALITY_END, TITLE, TITLE_END,
+};
+
 #[allow(non_snake_case)]
 #[derive(Debug, Tabled)]
-struct Movie {
-    Cím: String,
-    Nyelv: String,
-    Minőség: String,
+struct Movie<'a> {
+    Cím: &'a str,
+    Nyelv: &'a str,
+    Minőség: &'a str,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    const TITLE: &str = "<div class=\"recommended_block_name\">";
-    const TITLE_END: &str = "<br />";
-
-    const LANGUAGE: &str = "title=\"";
-    const LANGUAGE_END: &str = "\">";
-
-    const QUALITY_END: &str = "</div>";
-
     let mut buffer = Vec::new();
-    http_req::request::get("https://netmozi.com/", &mut buffer)?;
-    let mut website = String::from_utf8(buffer)?;
+    http_req::request::get(NETMOZI_URL, &mut buffer)?;
+    let website = String::from_utf8(buffer)?;
 
-    let mut number_of_movies = get_occurrences(&website, TITLE);
-    let mut movies: Vec<Movie> = Vec::new();
+    let mut movies = Vec::new();
 
-    while number_of_movies != 0 {
-        website = website[website.find(TITLE).ok_or("Failed to find title!")?..].to_string();
-        let temp_title = give_text_between(&website, TITLE, TITLE_END)?;
+    let titles: Vec<(usize, &str)> = website.match_indices(TITLE).collect();
+    for title in titles {
+        let title_end = website[title.0..].find(TITLE_END).ok_or(ERROR_TITLE)? + title.0;
 
-        website = website[website.find(LANGUAGE).ok_or("Failed to find language!")?..].to_string();
-        let temp_language = give_text_between(&website, LANGUAGE, LANGUAGE_END)?;
+        let title = website[TITLE.len() + title.0..title_end].trim();
 
-        let temp_quality = give_text_between(&website, "\">", QUALITY_END)?;
+        let language_start =
+            website[title_end..].find(LANGUAGE).ok_or(ERROR_LANGUAGE)? + title_end + LANGUAGE.len();
+
+        let language_end = website[language_start..]
+            .find(LANGUAGE_END)
+            .ok_or(ERROR_LANGUAGE_END)?
+            + language_start;
+
+        let language = &website[language_start..language_end];
+
+        let quality_end = website[language_end..]
+            .find(QUALITY_END)
+            .ok_or(ERROR_QUALITY_END)?
+            + language_end;
+
+        let quality = website[language_end + LANGUAGE_END.len()..quality_end].trim();
 
         movies.push(Movie {
-            Cím: temp_title.to_string(),
-            Nyelv: temp_language.to_string(),
-            Minőség: temp_quality.to_string(),
+            Cím: title,
+            Nyelv: language,
+            Minőség: quality,
         });
-
-        number_of_movies -= 1;
     }
-
     println!("{}", Table::new(movies));
     Ok(())
-}
-
-fn get_occurrences(source: &str, string_to_find: &str) -> usize {
-    source.matches(string_to_find).count()
-}
-
-fn give_text_between(source: &str, before: &str, after: &str) -> Result<String, &'static str> {
-    let start_bytes = source.find(before).ok_or("Before string not found")? + before.len();
-    let end_bytes = source[start_bytes..]
-        .find(after)
-        .ok_or("After string not found")?;
-
-    Ok(source[start_bytes..start_bytes + end_bytes]
-        .trim()
-        .to_string())
 }
